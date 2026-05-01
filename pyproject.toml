@@ -65,6 +65,10 @@ dependencies = [
     "numpy>=2.3.2",
     "mcp>=1.23.0",                                    # for connectors
     "zstandard>=0.23.0",                              # server - zstd request decompression
+    "ollama",                                         # for remote::ollama inference provider
+    "sqlite-vec",                                     # for inline::sqlite-vec vector_io provider
+    "chardet",                                        # required by sqlite-vec and localfs providers
+    "pypdf>=6.7.2",                                   # required by sqlite-vec vector store mixin
 ]
 
 [project.optional-dependencies]

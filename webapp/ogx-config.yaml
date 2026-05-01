@@ -3,6 +3,8 @@ distro_name: bedrock-agentcore-webapp
 apis:
   - inference
   - tool_runtime
+  - vector_io
+  - files
   - responses
 providers:
   inference:
@@ -13,6 +15,22 @@ providers:
   tool_runtime:
     - provider_id: model-context-protocol
       provider_type: remote::model-context-protocol
+  vector_io:
+    - provider_id: sqlite-vec
+      provider_type: inline::sqlite-vec
+      config:
+        db_path: ${env.SQLITE_STORE_DIR:=~/.ogx/bedrock-agentcore-webapp}/sqlite_vec.db
+        persistence:
+          namespace: vector_io::sqlite_vec
+          backend: kv_default
+  files:
+    - provider_id: builtin-files
+      provider_type: inline::localfs
+      config:
+        storage_dir: ${env.SQLITE_STORE_DIR:=~/.ogx/bedrock-agentcore-webapp}/files
+        metadata_store:
+          table_name: files_metadata
+          backend: sql_default
   responses:
     - provider_id: builtin
       provider_type: inline::builtin
@@ -39,5 +57,14 @@ storage:
     inference:
       table_name: inference_store
       backend: sql_default
+    conversations:
+      table_name: openai_conversations
+      backend: sql_default
+    prompts:
+      namespace: prompts
+      backend: kv_default
+    connectors:
+      namespace: connectors
+      backend: kv_default
 server:
   port: 8321

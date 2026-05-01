@@ -15,13 +15,13 @@ Testing uses Vitest for unit and integration tests, and fast-check for property-
   - Create `webapp/ogx-config.yaml` wiring `remote::ollama`, `remote::model-context-protocol`, and `inline::builtin` responses with SQLite storage backends and `server.port: 8321`
   - _Requirements: 1.1, 1.5, 1.6, 6.2_
 
-- [-] 2. Implement TypeScript backend — project setup and shared types
+- [x] 2. Implement TypeScript backend — project setup and shared types
   - Create `webapp/server/package.json` with dependencies (`express`, `dotenv`, `node-fetch`, `uuid`) and devDependencies (`typescript`, `tsx`, `@types/express`, `@types/node`, `@types/uuid`, `vitest`, `fast-check`, `supertest`, `@types/supertest`)
   - Create `webapp/server/tsconfig.json` targeting ES2022 with `module: NodeNext` and `moduleResolution: NodeNext`
   - Create `webapp/server/src/types.ts` defining `AppConfig`, `TokenState`, `InvokeAgentRequest`, `InvokeAgentResponse`, `ContentBlock`, `ImageBlock`, `TokenInfoResponse`, `OgxResponsesRequest`, and `OgxMcpTool` interfaces
   - _Requirements: 1.1, 3.5, 3.6_
 
-- [~] 3. Implement `config.ts` — environment variable loading and validation
+- [x] 3. Implement `config.ts` — environment variable loading and validation
   - Write `webapp/server/src/config.ts` that loads `.env` via `dotenv`, reads all eight env vars, applies defaults for optional vars, and exports a `loadConfig(): AppConfig` function
   - `loadConfig` must throw with a message prefixed `"Failed to start:"` if any of the four required vars is absent or empty; it must exit with code 1 when called from `index.ts`
   - The returned `AppConfig` object must never include `cognitoClientSecret` in any serializable form
@@ -37,7 +37,7 @@ Testing uses Vitest for unit and integration tests, and fast-check for property-
     - Generate arbitrary `cognitoClientSecret` strings; assert `JSON.stringify(loadConfig(...))` does not contain the secret value
     - **Validates: Requirements 2.6, 7.1**
 
-- [~] 4. Implement `tokenManager.ts` — Cognito OAuth2 lifecycle
+- [x] 4. Implement `tokenManager.ts` — Cognito OAuth2 lifecycle
   - Write `webapp/server/src/tokenManager.ts` with a `TokenManager` class that acquires an initial `client_credentials` token on construction, schedules proactive refresh at `Math.floor(expiresIn * 0.8)` seconds, retries failed refreshes up to 3 times with exponential back-off (2 s, 4 s, 8 s), and sets `isValid = false` after exhausting retries
   - Expose `getToken(): string | null` (returns `null` when `isValid === false`) and `getTokenInfo(): TokenInfoResponse` (never includes `accessToken`)
   - Store `accessToken` in memory only; never write it to disk, logs, or any serialized output
@@ -58,7 +58,7 @@ Testing uses Vitest for unit and integration tests, and fast-check for property-
     - Generate arbitrary secret and token strings; capture all log output during `TokenManager` operations; assert no log record contains the secret or token value
     - **Validates: Requirements 1.3, 7.2**
 
-- [~] 5. Implement `agentRouter.ts` — POST /api/invoke-agent handler
+- [x] 5. Implement `agentRouter.ts` — POST /api/invoke-agent handler
   - Write `webapp/server/src/agentRouter.ts` as an Express `Router` that validates `Content-Type: application/json` (→ 415), validates `query` is present and non-empty (→ 400), validates `query` length ≤ 10,000 chars (→ 400), checks `tokenManager.getToken()` is non-null (→ 503), constructs the OGX Responses API payload with the MCP tool entry, calls `POST /v1/responses` on OGX with a 30 s timeout, extracts text and image content from the OGX response, and returns `InvokeAgentResponse`
   - Generate a UUID v4 `sessionId` when none is provided in the request; echo the provided `sessionId` back in the response
   - Map OGX/gateway 4xx–5xx → HTTP 502; timeout → HTTP 504; unexpected errors → HTTP 500
@@ -99,7 +99,7 @@ Testing uses Vitest for unit and integration tests, and fast-check for property-
     - Set `TokenState.isValid = false`; generate arbitrary valid query strings; assert server returns HTTP 503 with `success === false` and `error === "Failed to process request: OAuth2 token unavailable"`
     - **Validates: Requirements 2.5**
 
-- [~] 6. Implement `tokenInfo.ts` and `index.ts` — entry point and token-info route
+- [x] 6. Implement `tokenInfo.ts` and `index.ts` — entry point and token-info route
   - Write `webapp/server/src/tokenInfo.ts` as an Express `Router` for `GET /api/token-info` that calls `tokenManager.getTokenInfo()` and returns `TokenInfoResponse` (never the token value)
   - Write `webapp/server/src/index.ts` that calls `loadConfig()`, constructs `TokenManager`, acquires the initial token (retrying up to 3 times with 5 s delay, exiting on failure), mounts `agentRouter` and `tokenInfoRouter`, serves `client/dist` (or `public/`) as static files with `express.static`, and starts listening on `config.port`
   - Log resolved gateway URL, Cognito token URL, and Ollama base URL at INFO level on startup — never log the client secret
@@ -110,7 +110,7 @@ Testing uses Vitest for unit and integration tests, and fast-check for property-
     - Generate arbitrary secret and token strings; make requests to all endpoints; assert no response body contains the secret or token value
     - **Validates: Requirements 2.6, 7.1**
 
-- [~] 7. Checkpoint — backend unit and property tests pass
+- [x] 7. Checkpoint — backend unit and property tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 8. Implement React frontend — project setup and shared types
