@@ -14,7 +14,8 @@ import type { TokenManager } from './tokenManager.js';
 export function buildOgxPayload(
   query: string,
   bearerToken: string,
-  config: AppConfig
+  config: AppConfig,
+  sessionId?: string
 ): OgxResponsesRequest {
   const tool: OgxMcpTool = {
     type: 'mcp',
@@ -23,11 +24,18 @@ export function buildOgxPayload(
     authorization: bearerToken,
   };
 
-  return {
+  const payload: OgxResponsesRequest = {
     model: config.ollamaModel,
     input: [{ role: 'user', content: query }],
     tools: [tool],
   };
+
+  // Tell the model exactly which sessionId to use so it doesn't invent one
+  if (sessionId) {
+    payload.instructions = `When calling the multimodal-agent___invoke_bedrock_agent tool, always use sessionId "${sessionId}". Do not invent or guess a sessionId.`;
+  }
+
+  return payload;
 }
 
 /**
@@ -134,10 +142,10 @@ export function createAgentRouter(
         ? requestSessionId
         : uuidv4();
 
-    // 5. OGX call with 30-second timeout
-    const payload = buildOgxPayload(query, bearerToken, config);
+    // 5. OGX call with 120-second timeout
+    const payload = buildOgxPayload(query, bearerToken, config, sessionId);
     const controller = new AbortController();
-    const timeoutMs = 120_000; // 120 s — Ollama cold starts can exceed 30 s
+    const timeoutMs = 300_000; // 5 min — agentic loop with local Ollama can be slow
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {

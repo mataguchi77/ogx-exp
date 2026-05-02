@@ -60,6 +60,7 @@ export interface OgxResponsesRequest {
   model: string;
   input: Array<{ role: string; content: string }>;
   tools: Array<OgxMcpTool>;
+  instructions?: string;
 }
 
 export interface OgxResponsesOutput {
