@@ -5,6 +5,7 @@ apis:
   - tool_runtime
   - vector_io
   - files
+  - file_processors
   - responses
 providers:
   inference:
@@ -31,6 +32,9 @@ providers:
         metadata_store:
           table_name: files_metadata
           backend: sql_default
+  file_processors:
+    - provider_id: pypdf
+      provider_type: inline::pypdf
   responses:
     - provider_id: builtin
       provider_type: inline::builtin
@@ -68,3 +72,11 @@ storage:
       backend: kv_default
 server:
   port: 8321
+registered_resources:
+  models:
+  - metadata:
+      embedding_dimension: ${env.EMBEDDING_DIMENSION:=1024}
+    model_id: ollama/${env.EMBEDDING_MODEL:=mxbai-embed-large}
+    provider_id: ollama
+    provider_model_id: ${env.EMBEDDING_MODEL:=mxbai-embed-large}
+    model_type: embedding
