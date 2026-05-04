@@ -5,6 +5,9 @@ import { loadConfig } from './config.js';
 import { TokenManager } from './tokenManager.js';
 import { createAgentRouter } from './agentRouter.js';
 import { createTokenInfoRouter } from './tokenInfo.js';
+import { createRagConfig } from './ragConfig.js';
+import type { RagConfig } from './ragConfig.js';
+import { createIngestRouter } from './ingestRouter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,6 +19,14 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error((err as Error).message);
     process.exit(1);
+  }
+
+  // Create RAG configuration (always created; RAG_SOURCE controls behaviour)
+  const ragConfig: RagConfig = createRagConfig();
+  const useOllamaRag = ragConfig.ragSource === 'ollama';
+  console.info(`RAG source: ${ragConfig.ragSource}`);
+  if (useOllamaRag) {
+    console.info(`Ollama RAG — embedding model: ${ragConfig.embeddingModel}, dimension: ${ragConfig.embeddingDimension}`);
   }
 
   // Log startup info — never log the client secret
@@ -38,7 +49,10 @@ async function main(): Promise<void> {
   app.use(express.json());
 
   // API routes
-  app.use('/api/invoke-agent', createAgentRouter(config, tokenManager));
+  if (useOllamaRag) {
+    app.use('/api/ingest', createIngestRouter(config, ragConfig));
+  }
+  app.use('/api/invoke-agent', createAgentRouter(config, tokenManager, undefined, useOllamaRag ? ragConfig : undefined));
   app.use('/api/token-info', createTokenInfoRouter(tokenManager));
 
   // Serve React SPA static files

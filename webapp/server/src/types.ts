@@ -56,11 +56,29 @@ export interface OgxMcpTool {
   authorization: string;    // "Bearer <cognito_token>"
 }
 
+export interface OgxFileSearchTool {
+  type: "file_search";
+  vector_store_ids: string[];
+}
+
 export interface OgxResponsesRequest {
   model: string;
   input: Array<{ role: string; content: string }>;
-  tools: Array<OgxMcpTool>;
+  tools: Array<OgxMcpTool | OgxFileSearchTool>;
   instructions?: string;
+}
+
+// Ingestion endpoint types
+export interface IngestRequest {
+  filePath: string;
+}
+
+export interface IngestResponse {
+  success: boolean;
+  fileId?: string;
+  vectorStoreId?: string;
+  filePath?: string;
+  error?: string;
 }
 
 export interface OgxResponsesOutput {

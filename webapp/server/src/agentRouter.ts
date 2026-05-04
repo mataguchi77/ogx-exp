@@ -1,7 +1,9 @@
 import { Router, type Request, type Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import type { AppConfig, ContentBlock, OgxMcpTool, OgxResponsesOutput, OgxResponsesRequest } from './types.js';
+import type { AppConfig, ContentBlock, OgxFileSearchTool, OgxMcpTool, OgxResponsesOutput, OgxResponsesRequest } from './types.js';
 import type { TokenManager } from './tokenManager.js';
+import type { RagConfig } from './ragConfig.js';
+import { getVectorStoreId } from './ragConfig.js';
 
 // ---------------------------------------------------------------------------
 // Pure helper functions (exported for testability)
@@ -15,7 +17,8 @@ export function buildOgxPayload(
   query: string,
   bearerToken: string,
   config: AppConfig,
-  sessionId?: string
+  sessionId?: string,
+  vectorStoreId?: string | null
 ): OgxResponsesRequest {
   const tool: OgxMcpTool = {
     type: 'mcp',
@@ -24,10 +27,16 @@ export function buildOgxPayload(
     authorization: bearerToken,
   };
 
+  const tools: Array<OgxMcpTool | OgxFileSearchTool> = [tool];
+
+  if (vectorStoreId != null && vectorStoreId !== '') {
+    tools.push({ type: 'file_search', vector_store_ids: [vectorStoreId] });
+  }
+
   const payload: OgxResponsesRequest = {
     model: config.ollamaModel,
     input: [{ role: 'user', content: query }],
-    tools: [tool],
+    tools,
   };
 
   // Tell the model exactly which sessionId to use so it doesn't invent one
@@ -74,11 +83,13 @@ export function extractContent(ogxOutput: OgxResponsesOutput['output']): Content
  * @param config       - Loaded AppConfig (gatewayUrl, ollamaModel, ogxBaseUrl, …)
  * @param tokenManager - TokenManager instance for bearer token retrieval
  * @param fetchFn      - Optional fetch override for testing
+ * @param ragConfig    - Optional RAG configuration for file_search tool inclusion
  */
 export function createAgentRouter(
   config: AppConfig,
   tokenManager: TokenManager,
-  fetchFn?: typeof fetch
+  fetchFn?: typeof fetch,
+  ragConfig?: RagConfig
 ): Router {
   const doFetch = fetchFn ?? globalThis.fetch;
   const router = Router();
@@ -143,7 +154,8 @@ export function createAgentRouter(
         : uuidv4();
 
     // 5. OGX call with 120-second timeout
-    const payload = buildOgxPayload(query, bearerToken, config, sessionId);
+    const vectorStoreId = ragConfig ? getVectorStoreId(ragConfig) : null;
+    const payload = buildOgxPayload(query, bearerToken, config, sessionId, vectorStoreId);
     const controller = new AbortController();
     const timeoutMs = 300_000; // 5 min — agentic loop with local Ollama can be slow
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
