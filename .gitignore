@@ -55,3 +55,6 @@ client-sdks/openapi/sdks/
 client-sdks/openapi/.openapi-generator/
 .agentready
 .gstack/
+
+# Vector store persistence state (local dev only)
+.vector-store-state.json

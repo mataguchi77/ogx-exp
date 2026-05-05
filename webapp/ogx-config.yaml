@@ -78,5 +78,5 @@ registered_resources:
       embedding_dimension: ${env.EMBEDDING_DIMENSION:=1024}
     model_id: ollama/${env.EMBEDDING_MODEL:=mxbai-embed-large}
     provider_id: ollama
-    provider_model_id: ${env.EMBEDDING_MODEL:=mxbai-embed-large}
+    provider_model_id: ${env.EMBEDDING_MODEL:=mxbai-embed-large}:latest
     model_type: embedding

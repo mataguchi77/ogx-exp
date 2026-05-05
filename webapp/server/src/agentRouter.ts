@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import type { AppConfig, ContentBlock, OgxFileSearchTool, OgxMcpTool, OgxResponsesOutput, OgxResponsesRequest } from './types.js';
+import type { AppConfig, ContentBlock, EndpointType, OgxFileSearchTool, OgxMcpTool, OgxResponsesOutput, OgxResponsesRequest } from './types.js';
 import type { TokenManager } from './tokenManager.js';
 import type { RagConfig } from './ragConfig.js';
 import { getVectorStoreId } from './ragConfig.js';
@@ -15,19 +15,22 @@ import { getVectorStoreId } from './ragConfig.js';
  */
 export function buildOgxPayload(
   query: string,
-  bearerToken: string,
+  bearerToken: string | null,
   config: AppConfig,
+  endpoint: EndpointType,
   sessionId?: string,
   vectorStoreId?: string | null
 ): OgxResponsesRequest {
-  const tool: OgxMcpTool = {
-    type: 'mcp',
-    server_url: config.gatewayUrl,
-    server_label: 'bedrock-agentcore',
-    authorization: bearerToken,
-  };
+  const tools: Array<OgxMcpTool | OgxFileSearchTool> = [];
 
-  const tools: Array<OgxMcpTool | OgxFileSearchTool> = [tool];
+  if (endpoint === 'aws') {
+    tools.push({
+      type: 'mcp',
+      server_url: config.gatewayUrl,
+      server_label: 'bedrock-agentcore',
+      authorization: bearerToken!,
+    });
+  }
 
   if (vectorStoreId != null && vectorStoreId !== '') {
     tools.push({ type: 'file_search', vector_store_ids: [vectorStoreId] });
@@ -40,7 +43,7 @@ export function buildOgxPayload(
   };
 
   // Tell the model exactly which sessionId to use so it doesn't invent one
-  if (sessionId) {
+  if (endpoint === 'aws' && sessionId) {
     payload.instructions = `When calling the multimodal-agent___invoke_bedrock_agent tool, always use sessionId "${sessionId}". Do not invent or guess a sessionId.`;
   }
 
@@ -137,14 +140,33 @@ export function createAgentRouter(
       return;
     }
 
-    // 3. Token check
-    const bearerToken = tokenManager.getToken();
-    if (bearerToken === null) {
-      res.status(503).json({
+    // 2d. Endpoint validation
+    const endpoint: EndpointType = (() => {
+      const raw = (req.body as { endpoint?: unknown }).endpoint;
+      if (raw === undefined || raw === null || raw === '') return 'aws';
+      if (raw === 'aws' || raw === 'ollama') return raw;
+      return null as unknown as EndpointType; // signals invalid
+    })();
+
+    if ((endpoint as unknown) === null) {
+      res.status(400).json({
         success: false,
-        error: 'Failed to process request: OAuth2 token unavailable',
+        error: 'Failed to process request: invalid endpoint value',
       });
       return;
+    }
+
+    // 3. Token check (only for AWS endpoint)
+    let bearerToken: string | null = null;
+    if (endpoint === 'aws') {
+      bearerToken = tokenManager.getToken();
+      if (bearerToken === null) {
+        res.status(503).json({
+          success: false,
+          error: 'Failed to process request: OAuth2 token unavailable',
+        });
+        return;
+      }
     }
 
     // 4. Session ID
@@ -155,7 +177,8 @@ export function createAgentRouter(
 
     // 5. OGX call with 120-second timeout
     const vectorStoreId = ragConfig ? getVectorStoreId(ragConfig) : null;
-    const payload = buildOgxPayload(query, bearerToken, config, sessionId, vectorStoreId);
+    console.info(`Agent request: vectorStoreId=${vectorStoreId}, ragConfig=${ragConfig ? 'present' : 'absent'}`);
+    const payload = buildOgxPayload(query, bearerToken, config, endpoint, sessionId, vectorStoreId);
     const controller = new AbortController();
     const timeoutMs = 300_000; // 5 min — agentic loop with local Ollama can be slow
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -174,7 +197,7 @@ export function createAgentRouter(
       if (!ogxResponse.ok) {
         res.status(502).json({
           success: false,
-          error: `Failed to invoke agent: ${ogxResponse.statusText}`,
+          error: `Failed to invoke agent [${endpoint}]: ${ogxResponse.statusText}`,
         });
         return;
       }
@@ -200,12 +223,21 @@ export function createAgentRouter(
       if (err instanceof Error && err.name === 'AbortError') {
         res.status(504).json({
           success: false,
-          error: 'Failed to invoke agent: gateway timeout',
+          error: `Failed to invoke agent [${endpoint}]: gateway timeout`,
         });
         return;
       }
 
-      // 7c. Unexpected errors → 500
+      // 7c. Network errors (TypeError from fetch) → 502
+      if (err instanceof TypeError) {
+        res.status(502).json({
+          success: false,
+          error: `Failed to invoke agent [${endpoint}]: endpoint unreachable`,
+        });
+        return;
+      }
+
+      // 7d. Unexpected errors → 500
       res.status(500).json({
         success: false,
         error: 'Failed to process request: internal server error',

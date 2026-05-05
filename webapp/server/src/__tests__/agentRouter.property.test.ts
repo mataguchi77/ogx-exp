@@ -123,7 +123,7 @@ describe('Property 7: OGX Responses API call always includes MCP tool with corre
         fc.string({ minLength: 1 }),
         (query, bearerToken, gatewayUrl) => {
           const config = makeConfig({ gatewayUrl });
-          const payload = buildOgxPayload(query, bearerToken, config);
+          const payload = buildOgxPayload(query, bearerToken, config, "aws");
 
           if (!payload.tools || payload.tools.length === 0) {
             throw new Error('Expected tools array to be non-empty');
@@ -324,8 +324,8 @@ describe('Property 10: Gateway or OGX HTTP errors are mapped to HTTP 502', () =>
           if (res.body.success !== false) {
             throw new Error('Expected success === false');
           }
-          if (typeof res.body.error !== 'string' || !res.body.error.startsWith('Failed to invoke agent:')) {
-            throw new Error(`Expected error to start with "Failed to invoke agent:" but got "${res.body.error as string}"`);
+          if (typeof res.body.error !== 'string' || !res.body.error.startsWith('Failed to invoke agent [')) {
+            throw new Error(`Expected error to start with "Failed to invoke agent [" but got "${res.body.error as string}"`);
           }
         }
       ),

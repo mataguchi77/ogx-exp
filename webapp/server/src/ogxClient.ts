@@ -148,7 +148,16 @@ export async function attachFileToVectorStore(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_id: fileId }),
+      body: JSON.stringify({
+        file_id: fileId,
+        chunking_strategy: {
+          type: 'static',
+          static: {
+            max_chunk_size_tokens: 200,
+            chunk_overlap_tokens: 50,
+          },
+        },
+      }),
     }
   );
 
@@ -157,6 +166,48 @@ export async function attachFileToVectorStore(
       `Failed to attach file to vector store: HTTP ${response.status}`
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Vector store retrieval
+// ---------------------------------------------------------------------------
+
+export interface VectorStoreObject {
+  id: string;
+  name: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Retrieves a vector store by ID from OGX.
+ * Returns the vector store object on HTTP 200.
+ * Returns null on HTTP 404 (store does not exist).
+ * Throws on any other non-2xx status with "Failed to retrieve vector store" prefix.
+ */
+export async function getVectorStore(
+  config: OgxClientConfig,
+  vectorStoreId: string
+): Promise<VectorStoreObject | null> {
+  const doFetch = config.fetchFn ?? globalThis.fetch;
+
+  const response = await doFetch(
+    `${config.ogxBaseUrl}/v1/vector_stores/${vectorStoreId}`,
+    { method: 'GET' }
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to retrieve vector store: HTTP ${response.status}`
+    );
+  }
+
+  const data = (await response.json()) as VectorStoreObject;
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +239,8 @@ export async function pollFileStatus(
       );
     }
 
-    const data = (await response.json()) as { status: string };
+    const data = (await response.json()) as { status: string; last_error?: { code: string; message: string } };
+    console.info(`Poll: vectorStoreId=${vectorStoreId}, fileId=${fileId}, status=${data.status}${data.last_error ? `, error=${data.last_error.message}` : ''}`);
 
     if (data.status === 'completed' || data.status === 'failed') {
       return data.status;

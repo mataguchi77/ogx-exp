@@ -4,9 +4,14 @@ PowerShell commands for testing on Windows Server 2025. Backend runs on `http://
 
 ---
 
-## 1. Start OGX (from the repo root)
+## 1. Start Ollama and OGX (from the repo root)
 
 ```powershell
+// If it is not running
+ollama serve
+// delete the persistent sqllite-vec storage if needed
+Remove-Item -Recurse -Force "$env:USERPROFILE\.ogx\bedrock-agentcore-webapp"
+// Start OGX
 uv run ogx stack run webapp/ogx-config.yaml
 ```
 
@@ -16,25 +21,20 @@ Wait for `Uvicorn running on http://:8321`. If OGX was already running, restart 
 
 The first request loads each model into memory and can take over a minute. Run these once before testing.
 
-### Chat model
-
 ```powershell
+# Chat model
 Invoke-RestMethod -Uri http://localhost:11434/api/generate `
-  -Method POST `
-  -ContentType "application/json" `
+  -Method POST -ContentType "application/json" `
   -Body '{"model": "llama3.1:8b", "prompt": "hi", "stream": false}'
-```
 
-### Embedding model (needed for Ollama RAG)
-
-```powershell
+# Embedding model
 Invoke-RestMethod -Uri http://localhost:11434/api/embeddings `
-  -Method POST `
-  -ContentType "application/json" `
+  -Method POST -ContentType "application/json" `
   -Body '{"model": "mxbai-embed-large", "prompt": "hello"}'
-```
 
-Wait for both responses. Subsequent requests will be fast.
+# Check the status
+ollama ps
+```
 
 ## 3. Start the backend (from `webapp\server\`)
 
@@ -82,7 +82,7 @@ The startup log should show `RAG source: ollama` with the embedding model detail
 Replace the `filePath` value with the absolute path to a local file:
 
 ```powershell
-$body = @{ filePath = "C:\Users\sso-taguchi.masahiro\Downloads\leeds-facup-2026.pdf" } | ConvertTo-Json
+$body = @{ filePath = "C:\Users\sso-taguchi.masahiro\Downloads\leeds-facup-2026.txt" } | ConvertTo-Json
 $res = Invoke-RestMethod -Uri http://localhost:5000/api/ingest `
   -Method POST `
   -ContentType "application/json" `
@@ -90,27 +90,26 @@ $res = Invoke-RestMethod -Uri http://localhost:5000/api/ingest `
 $res | ConvertTo-Json -Depth 10
 ```
 
-Expected response:
-
-```json
-{
-  "success": true,
-  "fileId": "file-abc123",
-  "vectorStoreId": "vs_abc123",
-  "filePath": "C:\\path\\to\\your\\document.txt"
-}
-```
-
 ### 5.3 Query the ingested document
 
 ```powershell
-$body = @{ query = "Summarize the document I just uploaded" } | ConvertTo-Json
+$body = @{ query = "Don't call the multimodal-agent with invoke bedrock agent tool. Search your local Ollama vector DB to answer my question. Has Tanaka scored for Leeds United in their FA Cup quarterfinals?" } | ConvertTo-Json
 $res = Invoke-RestMethod -Uri http://localhost:5000/api/invoke-agent `
   -Method POST `
   -ContentType "application/json" `
   -Body $body
 $res | ConvertTo-Json -Depth 10
 ```
+
+$body = @{
+  query = "Has Tanaka scored for Leeds United in their FA Cup quarterfinals?"
+  endpoint = "ollama"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri http://localhost:5000/api/invoke-agent `
+  -Method POST -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 10
+
+
 
 The response should include content from the ingested document via `file_search`.
 
@@ -125,12 +124,3 @@ RAG_SOURCE=aws
 Restart the backend. The startup log should show `RAG source: aws`.
 
 ---
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `RAG source: aws` at startup | `RAG_SOURCE` is `aws` or not set | Expected when using AWS Knowledge Base |
-| Ingestion returns 502 | OGX rejected the request | Check OGX logs; ensure OGX is running and the embedding model is loaded in Ollama |
-| Ingestion returns 504 | File processing timed out (>120s) | Try a smaller file or check Ollama resource usage |
-| `/api/ingest` returns 404 | `RAG_SOURCE` is not `ollama` | Set `RAG_SOURCE=ollama` and restart |

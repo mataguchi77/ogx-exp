@@ -5,9 +5,13 @@ import { loadConfig } from './config.js';
 import { TokenManager } from './tokenManager.js';
 import { createAgentRouter } from './agentRouter.js';
 import { createTokenInfoRouter } from './tokenInfo.js';
-import { createRagConfig } from './ragConfig.js';
+import { createRagConfig, setVectorStoreId } from './ragConfig.js';
 import type { RagConfig } from './ragConfig.js';
 import { createIngestRouter } from './ingestRouter.js';
+import { createPersistenceConfig, loadVectorStoreState, deleteStateFile } from './vectorStoreState.js';
+import type { PersistenceConfig } from './vectorStoreState.js';
+import { getVectorStore } from './ogxClient.js';
+import type { OgxClientConfig } from './ogxClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,6 +31,32 @@ async function main(): Promise<void> {
   console.info(`RAG source: ${ragConfig.ragSource}`);
   if (useOllamaRag) {
     console.info(`Ollama RAG — embedding model: ${ragConfig.embeddingModel}, dimension: ${ragConfig.embeddingDimension}`);
+  }
+
+  // Startup validation: load and validate persisted vector store state (Ollama RAG only).
+  // When RAG_SOURCE=aws, no persistence file operations or validation occur (Req 8.3).
+  let persistenceConfig: PersistenceConfig | undefined;
+  if (useOllamaRag) {
+    persistenceConfig = createPersistenceConfig();
+    const state = await loadVectorStoreState(persistenceConfig.statePath);
+
+    if (state) {
+      const ogxConfig: OgxClientConfig = { ogxBaseUrl: config.ogxBaseUrl };
+      try {
+        const store = await getVectorStore(ogxConfig, state.vectorStoreId);
+        if (store) {
+          setVectorStoreId(ragConfig, state.vectorStoreId);
+          console.info(`Restored persisted vector store: ${state.vectorStoreId}`);
+        } else {
+          // 404 — store no longer exists
+          await deleteStateFile(persistenceConfig.statePath);
+          console.warn(`Persisted vector store no longer exists: ${state.vectorStoreId}`);
+        }
+      } catch (err) {
+        // Network or other error — proceed without the persisted store (do NOT delete file)
+        console.warn(`Failed to validate persisted vector store: ${(err as Error).message}`);
+      }
+    }
   }
 
   // Log startup info — never log the client secret
@@ -49,8 +79,10 @@ async function main(): Promise<void> {
   app.use(express.json());
 
   // API routes
+  // Persistence and ingestion are only available for Ollama RAG.
+  // When RAG_SOURCE=aws, no persistence file operations or ingest routing occur (Req 8.3).
   if (useOllamaRag) {
-    app.use('/api/ingest', createIngestRouter(config, ragConfig));
+    app.use('/api/ingest', createIngestRouter(config, ragConfig, persistenceConfig));
   }
   app.use('/api/invoke-agent', createAgentRouter(config, tokenManager, undefined, useOllamaRag ? ragConfig : undefined));
   app.use('/api/token-info', createTokenInfoRouter(tokenManager));

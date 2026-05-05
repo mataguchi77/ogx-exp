@@ -19,9 +19,12 @@ export interface TokenState {
 }
 
 // API request/response types
+export type EndpointType = "aws" | "ollama";
+
 export interface InvokeAgentRequest {
   query: string;        // 1–10,000 chars
   sessionId?: string;   // UUID, optional
+  endpoint?: EndpointType;  // "aws" | "ollama", defaults to "aws"
 }
 
 export interface ImageBlock {
