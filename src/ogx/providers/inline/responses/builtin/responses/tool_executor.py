@@ -170,24 +170,21 @@ class ToolExecutor:
             search_results.extend(results)
 
         # Get templates from vector stores config, fallback to constants
+        config = self.vector_stores_config or VectorStoresConfig()
 
         # Check if annotations are enabled
-        enable_annotations = (
-            self.vector_stores_config
-            and self.vector_stores_config.annotation_prompt_params
-            and self.vector_stores_config.annotation_prompt_params.enable_annotations
-        )
+        enable_annotations = config.annotation_prompt_params.enable_annotations
 
         # Get templates
-        header_template = self.vector_stores_config.file_search_params.header_template
-        footer_template = self.vector_stores_config.file_search_params.footer_template
-        context_template = self.vector_stores_config.context_prompt_params.context_template
+        header_template = config.file_search_params.header_template
+        footer_template = config.file_search_params.footer_template
+        context_template = config.context_prompt_params.context_template
 
         # Get annotation templates (use defaults if annotations disabled)
         if enable_annotations:
-            chunk_annotation_template = self.vector_stores_config.annotation_prompt_params.chunk_annotation_template
+            chunk_annotation_template = config.annotation_prompt_params.chunk_annotation_template
             annotation_instruction_template = (
-                self.vector_stores_config.annotation_prompt_params.annotation_instruction_template
+                config.annotation_prompt_params.annotation_instruction_template
             )
         else:
             # Use defaults from VectorStoresConfig when annotations disabled
@@ -210,7 +207,7 @@ class ToolExecutor:
                 metadata_text += f", attributes: {result_item.attributes}"
 
             text_content = chunk_annotation_template.format(
-                index=i + 1, metadata_text=metadata_text, file_id=file_id, chunk_text=chunk_text
+                index=i + 1, metadata_text=metadata_text, file_id=file_id or "", chunk_text=chunk_text
             )
             content_items.append(TextContentItem(text=text_content))
             unique_files.add(file_id)

@@ -46,6 +46,9 @@ providers:
           responses:
             table_name: responses
             backend: sql_default
+        vector_stores_config:
+          chunk_retrieval_params:
+            chunk_multiplier: 2
 storage:
   backends:
     kv_default:

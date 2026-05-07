@@ -93,14 +93,6 @@ $res | ConvertTo-Json -Depth 10
 ### 5.3 Query the ingested document
 
 ```powershell
-$body = @{ query = "Don't call the multimodal-agent with invoke bedrock agent tool. Search your local Ollama vector DB to answer my question. Has Tanaka scored for Leeds United in their FA Cup quarterfinals?" } | ConvertTo-Json
-$res = Invoke-RestMethod -Uri http://localhost:5000/api/invoke-agent `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body $body
-$res | ConvertTo-Json -Depth 10
-```
-
 $body = @{
   query = "Has Tanaka scored for Leeds United in their FA Cup quarterfinals?"
   endpoint = "ollama"
@@ -108,9 +100,7 @@ $body = @{
 
 Invoke-RestMethod -Uri http://localhost:5000/api/invoke-agent `
   -Method POST -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 10
-
-
-
+```
 The response should include content from the ingested document via `file_search`.
 
 ### 5.4 Switch back to AWS Knowledge Base
