@@ -13,24 +13,77 @@ The existing `agentRouter.ts` is modified to conditionally include a `file_searc
 
 ### Key Design Decisions
 
-- **One-time model registration at startup**: The embedding model is registered with OGX once during server startup in `index.ts`. HTTP 409 (already registered) is treated as success. If registration fails, the server exits.
+- **RAG enabled via `RAG_SOURCE` env var**: Set `RAG_SOURCE=ollama` to enable local Ollama RAG. When set to `aws` (default), the backend skips RAG initialization and uses AWS Knowledge Base only.
+- **Embedding model pre-registered in OGX config**: The embedding model is declared in `webapp/ogx-config.yaml` under `registered_resources.models` using `${env.EMBEDDING_MODEL}`. No runtime model registration needed.
 - **Stateful vector store ID**: The RAG Config module holds a mutable `vectorStoreId` in memory, set after each successful ingestion. The agent router reads it at request time.
 - **Simple linear flow**: Every ingestion call creates a new vector store, uploads the file, and attaches it. No checking for existing resources.
 - **Injectable fetch**: All HTTP-calling modules accept an optional `fetchFn` parameter, following the existing pattern in `agentRouter.ts` and `tokenManager.ts` for testability.
 - **Error prefix convention**: All error messages follow the existing `"Failed to ..."` prefix convention from `AGENTS.md`.
+
+## OGX File Processing Pipeline (Server-Side)
+
+When a file is attached to a vector store via `POST /v1/vector_stores/{id}/files`, OGX processes it asynchronously through the following stages:
+
+```mermaid
+flowchart LR
+    A[Raw File<br/>on disk] --> B[File Processor<br/>pypdf / text]
+    B --> C[Static Chunker<br/>max 200 tokens<br/>50 overlap]
+    C --> D[Embedding Model<br/>mxbai-embed-large<br/>via Ollama]
+    D --> E[sqlite-vec<br/>Vector Store]
+```
+
+### Stage 1: Text Extraction (File Processor)
+
+The `file_processors` provider extracts raw text from uploaded files:
+- **PDF files**: The `inline::pypdf` provider uses the Python `pypdf` library to extract text page-by-page
+- **Text files** (`.txt`, `.md`): Read directly as UTF-8 text without any conversion
+
+Configured in `webapp/ogx-config.yaml`:
+```yaml
+file_processors:
+  - provider_id: pypdf
+    provider_type: inline::pypdf
+```
+
+### Stage 2: Chunking
+
+The extracted text is split into chunks using the strategy specified at file attachment time. Our backend requests `static` chunking:
+```json
+{
+  "type": "static",
+  "static": {
+    "max_chunk_size_tokens": 200,
+    "chunk_overlap_tokens": 50
+  }
+}
+```
+
+This keeps each chunk well within the embedding model's context window (512 tokens for `mxbai-embed-large`).
+
+### Stage 3: Embedding
+
+Each text chunk is sent to the embedding model (`ollama/mxbai-embed-large`) via OGX's inference provider. The Ollama provider forwards the request to the local Ollama server, which returns a 1024-dimensional vector for each chunk.
+
+### Stage 4: Storage
+
+The embedding vectors and chunk metadata are stored in the `sqlite-vec` vector store (a SQLite virtual table). At query time, OGX performs similarity search against these vectors using the same embedding model.
+
+### Processing Status
+
+File processing is asynchronous. After attaching a file, the backend polls `GET /v1/vector_stores/{id}/files/{fileId}` until:
+- `status: "completed"` — all chunks embedded and stored successfully
+- `status: "failed"` — an error occurred (e.g., context length exceeded, unsupported file format)
 
 ## Architecture
 
 ```mermaid
 sequenceDiagram
     participant Main as Server Startup<br/>(index.ts)
-    participant OgxClient as OGX Client
-    participant OGX as OGX Server<br/>(:8321)
+    participant RagConfig as RAG Config
 
-    Main->>OgxClient: registerEmbeddingModel(model, providerId)
-    OgxClient->>OGX: POST /v1/models
-    OGX-->>OgxClient: Model registered (or 409 → OK)
-    Note over Main: Server continues startup
+    Main->>RagConfig: createRagConfig()
+    Note over Main: RAG_SOURCE=ollama → enable RAG<br/>RAG_SOURCE=aws → skip RAG
+    Note over Main: Server continues startup<br/>(no OGX calls at startup)
 ```
 
 ```mermaid
