@@ -180,7 +180,7 @@ export function createAgentRouter(
     console.info(`Agent request: vectorStoreId=${vectorStoreId}, ragConfig=${ragConfig ? 'present' : 'absent'}`);
     const payload = buildOgxPayload(query, bearerToken, config, endpoint, sessionId, vectorStoreId);
     const controller = new AbortController();
-    const timeoutMs = 600_000; // 10 min — agentic loop on CPU-only Ollama is very slow
+    const timeoutMs = 300_000; // 5 min
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {

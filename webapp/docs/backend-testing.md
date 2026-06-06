@@ -90,6 +90,15 @@ $res = Invoke-RestMethod -Uri http://localhost:5000/api/ingest `
 $res | ConvertTo-Json -Depth 10
 ```
 
+```powershell
+$body = @{ filePath = "C:\Users\sso-taguchi.masahiro\Downloads\southampton-arsenal-facup-2026.txt" } | ConvertTo-Json
+$res = Invoke-RestMethod -Uri http://localhost:5000/api/ingest `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $body
+$res | ConvertTo-Json -Depth 10
+```
+
 ### 5.3 Query the ingested document
 
 ```powershell
@@ -101,6 +110,17 @@ $body = @{
 Invoke-RestMethod -Uri http://localhost:5000/api/invoke-agent `
   -Method POST -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 10
 ```
+
+```powershell
+$body = @{
+  query = "How about the Southampton? Do you have the result?"
+  endpoint = "ollama"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri http://localhost:5000/api/invoke-agent `
+  -Method POST -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 10
+```
+
 The response should include content from the ingested document via `file_search`.
 
 ### 5.4 Switch back to AWS Knowledge Base

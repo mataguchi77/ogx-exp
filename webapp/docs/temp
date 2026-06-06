@@ -1,0 +1,24 @@
+AWS path (~4 min total)
+client → backend → ogx → ollama → ogx → bedrock → ogx → ollama → ogx → backend → client
+
+Step	What's happening	Est. seconds
+client → backend	HTTP to localhost:5000, token check	< 1s
+backend → ogx	HTTP to localhost:8321, payload build	< 1s
+ogx → ollama (1st)	LLM reads the query + tool list, decides to call invoke_bedrock_agent, generates the tool call JSON	30–60s
+ogx → bedrock (MCP call)	OGX sends the tool call to your AgentCore gateway in ap-northeast-1, Bedrock agent runs, retrieves from Knowledge Base, returns	60–120s
+ogx → ollama (2nd)	LLM receives the Bedrock result, synthesizes the final answer	30–60s
+ogx → backend → client	Response serialization and HTTP return	< 1s
+Total		~120–240s (2–4 min)
+The two dominant costs are Bedrock round-trip and Ollama inference × 2. The Bedrock call alone can vary wildly — Knowledge Base retrieval + agent orchestration in ap-northeast-1 from your server is the biggest unknown.
+
+Ollama + local sqlite-vec path (~2 min total)
+client → backend → ogx → ollama → ogx → sqlite-vec → ogx → ollama → ogx → backend → client
+
+Step	What's happening	Est. seconds
+client → backend	HTTP to localhost:5000	< 1s
+backend → ogx	HTTP to localhost:8321	< 1s
+ogx → ollama (1st)	LLM reads query + file_search tool list, generates the search call	30–60s
+ogx → sqlite-vec	Vector embedding of the query (mxbai-embed-large via Ollama) + ANN search in SQLite	5–15s
+ogx → ollama (2nd)	LLM receives retrieved chunks, synthesizes the answer	30–60s
+ogx → backend → client	Response serialization and HTTP return	< 1s
+Total		~65–135s (1–2 min)
