@@ -95,3 +95,13 @@ export interface OgxResponsesOutput {
     }>;
   }>;
 }
+
+// Chat streaming endpoint types
+export interface ChatMessage {
+  role: string;    // 'user' | 'assistant' | 'system'
+  content: string;
+}
+
+export interface ChatStreamRequestBody {
+  messages: ChatMessage[];
+}

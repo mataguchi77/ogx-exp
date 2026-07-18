@@ -12,6 +12,7 @@ import { createPersistenceConfig, loadVectorStoreState, deleteStateFile } from '
 import type { PersistenceConfig } from './vectorStoreState.js';
 import { getVectorStore } from './ogxClient.js';
 import type { OgxClientConfig } from './ogxClient.js';
+import { createChatRouter } from './chatRouter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -86,6 +87,7 @@ async function main(): Promise<void> {
   }
   app.use('/api/invoke-agent', createAgentRouter(config, tokenManager, undefined, useOllamaRag ? ragConfig : undefined));
   app.use('/api/token-info', createTokenInfoRouter(tokenManager));
+  app.use('/api/chat/stream', createChatRouter());
 
   // Serve React SPA static files
   const publicDir = path.join(__dirname, '..', 'public');

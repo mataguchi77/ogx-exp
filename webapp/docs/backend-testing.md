@@ -115,3 +115,107 @@ RAG_SOURCE=aws
 Restart the backend. The startup log should show `RAG source: aws`.
 
 ---
+
+## 6. Test — Config Endpoint
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:5000/api/config -Method GET |
+  ConvertTo-Json -Depth 5
+```
+
+Expected response:
+
+```json
+{ "defaultModel": "llama3.1:8b" }
+```
+
+If `DEFAULT_MODEL` is set in `webapp\.env`, the response reflects that value.
+
+---
+
+## 7. Test — Streaming Chat Endpoint
+
+### 7.1 Single-turn request
+
+```powershell
+$body = @{
+  messages = @(
+    @{ role = "user"; content = "What is 2 + 2?" }
+  )
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Uri http://localhost:5000/api/chat/stream `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+`Invoke-RestMethod` collects the SSE stream into a single string. You should see lines like:
+
+```
+data: {"choices":[{"delta":{"content":"4"},...}]}
+...
+data: [DONE]
+```
+
+### 7.2 Multi-turn request (conversation history)
+
+```powershell
+$body = @{
+  messages = @(
+    @{ role = "user";      content = "My name is Masahiro." }
+    @{ role = "assistant"; content = "Nice to meet you, Masahiro!" }
+    @{ role = "user";      content = "What is my name?" }
+  )
+  model = "llama3.1:8b"
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Uri http://localhost:5000/api/chat/stream `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+The model should reference "Masahiro" in its reply.
+
+### 7.3 Validation error (empty messages → HTTP 400)
+
+```powershell
+$body = @{ messages = @() } | ConvertTo-Json
+
+try {
+  Invoke-RestMethod -Uri http://localhost:5000/api/chat/stream `
+    -Method POST -ContentType "application/json" -Body $body
+} catch {
+  $_.Exception.Response.StatusCode.value__   # Expected: 400
+  $_.ErrorDetails.Message                    # Expected: { "error": "Failed to process request: ..." }
+}
+```
+
+### 7.4 Validation error (model too long → HTTP 400)
+
+```powershell
+$longModel = "a" * 257
+$body = @{
+  messages = @(@{ role = "user"; content = "hi" })
+  model    = $longModel
+} | ConvertTo-Json -Depth 5
+
+try {
+  Invoke-RestMethod -Uri http://localhost:5000/api/chat/stream `
+    -Method POST -ContentType "application/json" -Body $body
+} catch {
+  $_.Exception.Response.StatusCode.value__   # Expected: 400
+}
+```
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| HTTP 502 "OGX endpoint unreachable" | OGX not running | Run `uv run ogx stack run webapp/ogx-config.yaml` and wait for port 8321 |
+| HTTP 502 "upstream returned 4xx/5xx" | Model not loaded | Run the Ollama warmup commands in section 2 |
+| Empty / no SSE chunks | Ollama still loading | Wait 30–60 s and retry |
+| HTTP 400 on `messages` | Request body malformed | Ensure `messages` is a non-empty array with `role` and `content` fields |
+
+---

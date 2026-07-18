@@ -16,7 +16,6 @@ The frontend lives in `webapp/client/`, is served as static files by the existin
 - **Chat_Message**: A single conversation turn with a `role` (`user` or `assistant`) and a `content` string.
 - **Message_List**: The ordered array of Chat_Messages rendered in the conversation view.
 - **Streaming_Buffer**: The in-progress assistant reply that accumulates tokens as they arrive before being committed to the Message_List.
-- **Model_Selector**: A UI control that lets the user choose which OGX inference model to use.
 - **Send_Button**: The UI button that submits the user's query.
 - **Stop_Button**: The UI button that cancels an in-progress streaming response.
 - **Input_Field**: The text area where the user types a query.
@@ -45,14 +44,15 @@ The frontend lives in `webapp/client/`, is served as static files by the existin
 
 #### Acceptance Criteria
 
-1. THE Backend SHALL expose a `POST /api/chat/stream` route that accepts a JSON body containing a `messages` array of 1–100 Chat_Messages and an optional `model` string of 1–256 characters.
+1. THE Backend SHALL expose a `POST /api/chat/stream` route that accepts a JSON body containing a `messages` array of 1–100 Chat_Messages.
 2. WHEN a valid request is received, THE Streaming_Endpoint SHALL forward the request to OGX `POST /v1/chat/completions` with `stream: true` and `Content-Type: application/json`.
 3. THE Streaming_Endpoint SHALL set the response headers `Content-Type: text/event-stream` and `Cache-Control: no-cache`, and pipe OGX SSE chunks directly to the client without buffering the full response.
 4. IF the `messages` array is absent, empty, or exceeds 100 items, THEN THE Streaming_Endpoint SHALL return HTTP 400 with a JSON error body indicating the validation failure.
-5. IF the OGX server returns a non-2xx status, THEN THE Streaming_Endpoint SHALL return HTTP 502 with a JSON error body indicating the upstream failure.
+5. IF the OGX server returns a non-2xx status other than 429, THEN THE Streaming_Endpoint SHALL return HTTP 502 with a JSON error body indicating the upstream failure.
 6. WHEN the client closes the connection before the stream completes, THE Streaming_Endpoint SHALL abort the upstream OGX fetch request using an AbortController.
 7. IF a network error occurs while connecting to OGX, THEN THE Streaming_Endpoint SHALL return HTTP 502 with a JSON error body indicating the endpoint is unreachable.
 8. THE Streaming_Endpoint SHALL resolve the OGX base URL from the `OGX_BASE_URL` environment variable (default: `http://localhost:8321`).
+9. IF the OGX server returns HTTP 429, THEN THE Streaming_Endpoint SHALL return HTTP 429 (not 502) to the browser with the original OGX error message body forwarded as the JSON error body.
 
 ---
 
@@ -79,7 +79,7 @@ The frontend lives in `webapp/client/`, is served as static files by the existin
 #### Acceptance Criteria
 
 1. WHEN the user clicks Send_Button or presses Enter (without Shift), THE Chat_App SHALL append the user's text as a Chat_Message to the Message_List and clear the Input_Field.
-2. WHEN a message is submitted, THE Chat_App SHALL send a `POST /api/chat/stream` request to the Backend with the full Message_List as the `messages` body and the selected model.
+2. WHEN a message is submitted, THE Chat_App SHALL send a `POST /api/chat/stream` request to the Backend with the full Message_List as the `messages` body.
 3. WHILE a streaming response is in progress, THE Chat_App SHALL disable the Send_Button and the Input_Field to prevent concurrent submissions; WHEN the stream completes or an error occurs, THE Chat_App SHALL re-enable the Send_Button and the Input_Field.
 4. IF the Input_Field is empty or contains only whitespace, THEN THE Chat_App SHALL NOT submit a request and SHALL NOT change the Message_List.
 5. WHEN the streaming response completes (SSE `[DONE]` signal received), THE Chat_App SHALL commit the completed Streaming_Buffer as a final assistant Chat_Message in the Message_List.
@@ -130,25 +130,11 @@ The frontend lives in `webapp/client/`, is served as static files by the existin
 4. IF a network error prevents the request from reaching the Backend, THE Chat_App SHALL display an inline error message in the Message_List indicating a network error was the cause.
 5. WHEN an error occurs, THE Chat_App SHALL re-enable the Send_Button and the Input_Field.
 6. THE error message displayed in the Message_List SHALL include a visible error label that is absent from normal assistant messages, making it objectively distinguishable.
+7. IF the Backend returns HTTP 429, THE Chat_App SHALL display an inline error message in the Message_List indicating the user should wait and retry, including the Request ID from the error body if present.
 
 ---
 
-### Requirement 8: Model Selection
-
-**User Story:** As a user, I want to select which model the backend uses for my query, so that I can switch between available inference backends.
-
-#### Acceptance Criteria
-
-1. THE Chat_App SHALL include a Model_Selector populated with at least one model name sourced from Backend configuration.
-2. WHEN the user selects a model via the Model_Selector, THE Chat_App SHALL use the selected model name in the `model` field of all subsequent requests within the current session.
-3. WHILE a streaming response is in progress, THE Model_Selector SHALL be disabled; WHEN the stream completes or is interrupted, THE Model_Selector SHALL be re-enabled.
-4. WHEN the Chat_App loads, THE Chat_App SHALL request the default model from the Backend via `GET /api/config` and pre-select that model in the Model_Selector.
-5. IF `GET /api/config` fails, THE Chat_App SHALL fall back to the first model in the Model_Selector list and display an indication that the default could not be loaded.
-6. THE Backend SHALL expose a `GET /api/config` endpoint that returns a JSON response containing the configured default model name.
-
----
-
-### Requirement 9: Conversation History
+### Requirement 8: Conversation History
 
 **User Story:** As a user, I want the full conversation context to be sent with each message, so that the model can maintain coherent multi-turn dialogue.
 
@@ -163,13 +149,13 @@ The frontend lives in `webapp/client/`, is served as static files by the existin
 
 ---
 
-### Requirement 10: Accessibility
+### Requirement 9: Accessibility
 
 **User Story:** As a user relying on keyboard navigation, I want to interact with the chat interface fully via keyboard, so that the app is usable without a mouse.
 
 #### Acceptance Criteria
 
-1. THE Chat_App SHALL assign tab order such that focus moves in the sequence: Input_Field → Send_Button → Stop_Button → Model_Selector.
+1. THE Chat_App SHALL assign tab order such that focus moves in the sequence: Input_Field → Send_Button → Stop_Button.
 2. THE Send_Button SHALL have an `aria-label` of "Send message" and the Stop_Button SHALL have an `aria-label` of "Stop response".
 3. THE Input_Field SHALL have an associated `<label>` element or `aria-label` identifying it as the message input.
 4. WHEN the streaming response completes, THE Chat_App SHALL announce the completion once via an `aria-live` region set to `polite` (the announcement SHALL NOT fire once per token).
