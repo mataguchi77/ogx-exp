@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   }
   app.use('/api/invoke-agent', createAgentRouter(config, tokenManager, undefined, useOllamaRag ? ragConfig : undefined));
   app.use('/api/token-info', createTokenInfoRouter(tokenManager));
-  app.use('/api/chat/stream', createChatRouter());
+  app.use('/api/chat/stream', createChatRouter(config, tokenManager, ragConfig));
 
   // Serve React SPA static files
   const publicDir = path.join(__dirname, '..', 'public');

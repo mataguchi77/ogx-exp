@@ -7,10 +7,58 @@ import * as fc from 'fast-check';
 import express from 'express';
 import request from 'supertest';
 import { createChatRouter } from '../chatRouter.js';
+import type { AppConfig } from '../types.js';
+import type { TokenManager } from '../tokenManager.js';
+import type { RagConfig } from '../ragConfig.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Default mock AppConfig for tests.
+ */
+function defaultConfig(): AppConfig {
+  return {
+    gatewayUrl: 'https://gateway.example.com/invoke',
+    cognitoTokenUrl: 'https://cognito.example.com/oauth2/token',
+    cognitoClientId: 'test-client-id',
+    cognitoClientSecret: 'test-client-secret',
+    ollamaUrl: 'http://localhost:11434/v1',
+    ollamaModel: 'test/model:latest',
+    ogxBaseUrl: 'http://localhost:8321',
+    port: 5000,
+  };
+}
+
+/**
+ * Default mock TokenManager (returns null token — not needed for Ollama path).
+ */
+function defaultTokenManager(): TokenManager {
+  return {
+    getToken: () => null,
+    getTokenInfo: () => ({
+      expiresAt: new Date().toISOString(),
+      remainingSeconds: 3600,
+      scopes: [],
+    }),
+    initialize: async () => {},
+    destroy: () => {},
+  } as unknown as TokenManager;
+}
+
+/**
+ * Default mock RagConfig (Ollama without vectorStoreId — simplest path).
+ */
+function defaultRagConfig(): RagConfig {
+  return {
+    ragSource: 'ollama',
+    embeddingModel: 'ollama/mxbai-embed-large',
+    embeddingDimension: 1024,
+    vectorStoreName: 'rag-documents',
+    vectorStoreId: null,
+  };
+}
 
 /**
  * Builds a minimal Express app with the chat router mounted at /api/chat/stream.
@@ -18,7 +66,7 @@ import { createChatRouter } from '../chatRouter.js';
 function buildApp(fetchFn?: typeof fetch): express.Express {
   const app = express();
   app.use(express.json());
-  app.use('/api/chat/stream', createChatRouter(fetchFn));
+  app.use('/api/chat/stream', createChatRouter(defaultConfig(), defaultTokenManager(), defaultRagConfig(), fetchFn));
   return app;
 }
 
@@ -234,7 +282,7 @@ describe('Property 1: Input validation rejects invalid messages arrays', () => {
 // ---------------------------------------------------------------------------
 
 describe('Property 2: Streaming proxy preserves messages and sets stream flag', () => {
-  it('forwarded OGX payload has stream=true, correct messages, and model=OLLAMA_MODEL', async () => {
+  it('forwarded OGX payload has stream=true, correct input, and model=ollamaModel from config', async () => {
     const messageArb = fc.record({
       role: fc.oneof(fc.constant('user'), fc.constant('assistant'), fc.constant('system')),
       content: fc.string({ minLength: 1, maxLength: 500 }),
@@ -261,48 +309,39 @@ describe('Property 2: Streaming proxy preserves messages and sets stream flag', 
             });
           };
 
-          // Set OLLAMA_MODEL for the test
-          const originalModel = process.env.OLLAMA_MODEL;
-          process.env.OLLAMA_MODEL = 'test/model:latest';
-
           const app = buildApp(fetchFn);
           await request(app)
             .post('/api/chat/stream')
             .set('Content-Type', 'application/json')
             .send({ messages });
 
-          // Restore env
-          if (originalModel === undefined) {
-            delete process.env.OLLAMA_MODEL;
-          } else {
-            process.env.OLLAMA_MODEL = originalModel;
-          }
-
           if (capturedBody === null) {
             throw new Error('Fetch was never called — request did not reach OGX');
           }
 
-          const body = capturedBody as { stream: unknown; messages: unknown; model: unknown };
+          const body = capturedBody as { stream: unknown; input: unknown; model: unknown };
 
           if (body.stream !== true) {
             throw new Error(`Expected stream=true but got ${JSON.stringify(body.stream)}`);
           }
 
-          const forwardedMessages = body.messages as Array<{ role: string; content: string }>;
-          if (!Array.isArray(forwardedMessages) || forwardedMessages.length !== messages.length) {
+          // After the fix, the payload uses `input` (not `messages`)
+          const forwardedInput = body.input as Array<{ role: string; content: string }>;
+          if (!Array.isArray(forwardedInput) || forwardedInput.length !== messages.length) {
             throw new Error(
-              `Expected messages length ${messages.length} but got ${Array.isArray(forwardedMessages) ? forwardedMessages.length : 'not-an-array'}`
+              `Expected input length ${messages.length} but got ${Array.isArray(forwardedInput) ? forwardedInput.length : 'not-an-array'}`
             );
           }
 
           for (let i = 0; i < messages.length; i++) {
-            if (forwardedMessages[i].role !== messages[i].role || forwardedMessages[i].content !== messages[i].content) {
+            if (forwardedInput[i].role !== messages[i].role || forwardedInput[i].content !== messages[i].content) {
               throw new Error(
-                `Message[${i}] mismatch: expected ${JSON.stringify(messages[i])} but got ${JSON.stringify(forwardedMessages[i])}`
+                `Message[${i}] mismatch: expected ${JSON.stringify(messages[i])} but got ${JSON.stringify(forwardedInput[i])}`
               );
             }
           }
 
+          // Model comes from config.ollamaModel (set to 'test/model:latest' in defaultConfig)
           if (body.model !== 'test/model:latest') {
             throw new Error(`Expected model="test/model:latest" but got "${body.model as string}"`);
           }
@@ -338,12 +377,7 @@ describe('Property 13: HTTP 429 from OGX is forwarded as HTTP 429 (not 502)', ()
             .send({ messages: [{ role: 'user', content: 'Hello' }] });
 
           if (res.status !== 429) {
-            throw new Error(`Expected HTTP 429 but got ${res.status}`);
-          }
-
-          // Must NOT be 502
-          if (res.status === 502) {
-            throw new Error('Expected HTTP 429 but got 502 — 429 was incorrectly mapped to 502');
+            throw new Error(`Expected HTTP 429 but got ${res.status} — 429 was incorrectly mapped`);
           }
 
           if (typeof res.body.error !== 'string') {

@@ -1,5 +1,9 @@
 import { Router, type Request, type Response } from 'express';
-import type { ChatMessage, ChatStreamRequestBody } from './types.js';
+import { v4 as uuidv4 } from 'uuid';
+import type { AppConfig, ChatMessage, ChatStreamRequestBody, OgxMcpTool, OgxFileSearchTool } from './types.js';
+import type { TokenManager } from './tokenManager.js';
+import type { RagConfig } from './ragConfig.js';
+import { getVectorStoreId } from './ragConfig.js';
 
 // ---------------------------------------------------------------------------
 // Router factory
@@ -12,9 +16,12 @@ import type { ChatMessage, ChatStreamRequestBody } from './types.js';
  * `stream: true`, and pipes the raw SSE bytes from OGX directly to the browser
  * without buffering.
  *
- * @param fetchFn - Optional fetch override for testing; defaults to native fetch.
+ * @param config       - Loaded AppConfig (ogxBaseUrl, ollamaModel, gatewayUrl, …)
+ * @param tokenManager - TokenManager instance for bearer token retrieval
+ * @param ragConfig    - RAG configuration for tool selection
+ * @param fetchFn      - Optional fetch override for testing; defaults to native fetch.
  */
-export function createChatRouter(fetchFn?: typeof fetch): Router {
+export function createChatRouter(config: AppConfig, tokenManager: TokenManager, ragConfig: RagConfig, fetchFn?: typeof fetch): Router {
   const doFetch = fetchFn ?? globalThis.fetch;
   const router = Router();
 
@@ -37,18 +44,52 @@ export function createChatRouter(fetchFn?: typeof fetch): Router {
       return;
     }
 
-    // 2. Resolve OGX base URL (Requirement 2.8)
-    const ogxBaseUrl = process.env.OGX_BASE_URL ?? 'http://localhost:8321';
+    // 2. Token check (only for AWS path)
+    let bearerToken: string | null = null;
+    if (ragConfig.ragSource === 'aws') {
+      bearerToken = tokenManager.getToken();
+      if (bearerToken === null) {
+        res.status(503).json({
+          error: 'Failed to process request: OAuth2 token unavailable',
+        });
+        return;
+      }
+    }
 
-    // 3. Build OGX Chat Completions payload (Requirement 2.2)
-    const model = process.env.OLLAMA_MODEL ?? 'ollama/llama3.1:8b';
-    const ogxPayload = {
-      model,
-      messages: messages as ChatMessage[],
+    // 3. Build tools array based on ragConfig
+    const tools: Array<OgxMcpTool | OgxFileSearchTool> = [];
+    if (ragConfig.ragSource === 'aws') {
+      tools.push({
+        type: 'mcp',
+        server_url: config.gatewayUrl,
+        server_label: 'bedrock-agentcore',
+        authorization: bearerToken!,
+      });
+    } else {
+      const vectorStoreId = getVectorStoreId(ragConfig);
+      if (vectorStoreId != null && vectorStoreId !== '') {
+        tools.push({ type: 'file_search', vector_store_ids: [vectorStoreId] });
+      }
+    }
+
+    // 4. Build OGX Responses API payload
+    const ogxPayload: Record<string, unknown> = {
+      model: config.ollamaModel,
+      input: messages as ChatMessage[],
+      tools,
       stream: true,
     };
 
-    // 4. Attach AbortController; cancel upstream fetch on client disconnect (Requirement 2.6)
+    // For the AWS path, instruct the model to use a stable sessionId when calling
+    // the Bedrock AgentCore tool — without this, the gateway rejects the call.
+    if (ragConfig.ragSource === 'aws') {
+      const sessionId = uuidv4();
+      ogxPayload.instructions = `When calling the multimodal-agent___invoke_bedrock_agent tool, always use sessionId "${sessionId}". Do not invent or guess a sessionId.`;
+    }
+
+    console.info(`Chat stream: ragSource=${ragConfig.ragSource}, tools=${JSON.stringify(tools.map(t => t.type))}, model=${config.ollamaModel}`);
+
+    // 5. Attach AbortController; cancel upstream fetch on client disconnect
     const controller = new AbortController();
     let streamingStarted = false;
     req.on('close', () => {
@@ -60,15 +101,15 @@ export function createChatRouter(fetchFn?: typeof fetch): Router {
     });
 
     try {
-      // 5. Forward to OGX POST /v1/chat/completions (Requirement 2.2)
-      const ogxResponse = await doFetch(`${ogxBaseUrl}/v1/chat/completions`, {
+      // 6. Forward to OGX POST /v1/responses
+      const ogxResponse = await doFetch(`${config.ogxBaseUrl}/v1/responses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ogxPayload),
         signal: controller.signal,
       });
 
-      // 6. Handle OGX 429 — forward as 429 with original error body (Requirement 2.9)
+      // 7. Handle OGX 429 — forward as 429 with original error body
       if (ogxResponse.status === 429) {
         const ogxErrorBody = await ogxResponse.text();
         res.status(429).json({
@@ -77,7 +118,7 @@ export function createChatRouter(fetchFn?: typeof fetch): Router {
         return;
       }
 
-      // 7. Handle other OGX non-2xx → 502 (Requirement 2.5)
+      // 8. Handle other OGX non-2xx → 502
       if (!ogxResponse.ok) {
         res.status(502).json({
           error: `Failed to proxy stream: upstream returned ${ogxResponse.status}`,
@@ -85,7 +126,7 @@ export function createChatRouter(fetchFn?: typeof fetch): Router {
         return;
       }
 
-      // 8. Set SSE headers and pipe raw bytes to browser (Requirement 2.3)
+      // 9. Set SSE headers and pipe raw bytes to browser
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -115,7 +156,7 @@ export function createChatRouter(fetchFn?: typeof fetch): Router {
         reader.releaseLock();
       }
     } catch (err: unknown) {
-      // 9. Network errors (TypeError from fetch) → 502 (Requirement 2.7)
+      // 10. Network errors (TypeError from fetch) → 502
       if (err instanceof TypeError) {
         res.status(502).json({
           error: 'Failed to proxy stream: OGX endpoint unreachable',

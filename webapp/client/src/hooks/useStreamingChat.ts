@@ -153,10 +153,27 @@ export function useStreamingChat(): UseStreamingChatReturn {
               const trimmed = line.trimEnd();
               if (trimmed === '') continue;
 
-              // Requirement 5.3 — handle [DONE] signal
+              // Handle event: prefix lines — check for response.completed termination
+              if (trimmed.startsWith('event:')) {
+                const eventType = trimmed.slice('event:'.length).trim();
+                if (eventType === 'response.completed') {
+                  receivedDone = true;
+                  const finalContent = bufferRef.current;
+                  appendMessage({
+                    id: crypto.randomUUID(),
+                    role: 'assistant',
+                    content: finalContent,
+                  });
+                  finishStreaming();
+                  done = true;
+                  break;
+                }
+                continue; // Skip other event: lines (they precede corresponding data: lines)
+              }
+
+              // Fallback: handle [DONE] signal for backward compatibility
               if (trimmed === 'data: [DONE]') {
                 receivedDone = true;
-                // Commit the buffer as the final assistant message
                 const finalContent = bufferRef.current;
                 appendMessage({
                   id: crypto.randomUUID(),
