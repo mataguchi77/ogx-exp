@@ -77,17 +77,22 @@ export function createChatRouter(config: AppConfig, tokenManager: TokenManager, 
       model: config.ollamaModel,
       input: messages as ChatMessage[],
       tools,
-      stream: true,
     };
 
     // For the AWS path, instruct the model to use a stable sessionId when calling
     // the Bedrock AgentCore tool — without this, the gateway rejects the call.
+    // Also, AWS MCP tool calls do not support streaming reliably — OGX's agentic
+    // loop with MCP tools hangs in streaming mode. Use non-streaming for AWS.
+    const useStreaming = ragConfig.ragSource !== 'aws';
     if (ragConfig.ragSource === 'aws') {
       const sessionId = uuidv4();
       ogxPayload.instructions = `When calling the multimodal-agent___invoke_bedrock_agent tool, always use sessionId "${sessionId}". Do not invent or guess a sessionId.`;
     }
+    if (useStreaming) {
+      ogxPayload.stream = true;
+    }
 
-    console.info(`Chat stream: ragSource=${ragConfig.ragSource}, tools=${JSON.stringify(tools.map(t => t.type))}, model=${config.ollamaModel}`);
+    console.info(`Chat stream: ragSource=${ragConfig.ragSource}, tools=${JSON.stringify(tools.map(t => t.type))}, model=${config.ollamaModel}, streaming=${useStreaming}`);
 
     // 5. Attach AbortController; cancel upstream fetch on client disconnect
     const controller = new AbortController();
@@ -126,7 +131,50 @@ export function createChatRouter(config: AppConfig, tokenManager: TokenManager, 
         return;
       }
 
-      // 9. Set SSE headers and pipe raw bytes to browser
+      // 9. Handle response based on streaming mode
+      if (!useStreaming) {
+        // Non-streaming path (AWS MCP): Read the full JSON response from OGX,
+        // extract text content, and emit it as SSE events for the frontend.
+        const ogxData = await ogxResponse.json() as {
+          output?: Array<{
+            type: string;
+            content?: Array<{ type: string; text?: string }>;
+          }>;
+        };
+
+        // Extract text from the response output (same logic as agentRouter.extractContent)
+        const textParts: string[] = [];
+        for (const item of ogxData.output ?? []) {
+          if (item.type !== 'message' || !item.content) continue;
+          for (const block of item.content) {
+            if ((block.type === 'output_text' || block.type === 'text') && block.text) {
+              textParts.push(block.text);
+            }
+          }
+        }
+
+        const fullText = textParts.join('\n');
+
+        // Set SSE headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
+
+        // Emit the full text as a single delta event in Responses API SSE format
+        if (fullText) {
+          const deltaEvent = JSON.stringify({ type: 'response.output_text.delta', delta: fullText });
+          res.write(`event: response.output_text.delta\ndata: ${deltaEvent}\n\n`);
+        }
+
+        // Emit the completion event
+        const completedEvent = JSON.stringify({ type: 'response.completed', response: {} });
+        res.write(`event: response.completed\ndata: ${completedEvent}\n\n`);
+        res.end();
+        return;
+      }
+
+      // 10. Streaming path (Ollama): Set SSE headers and pipe raw bytes to browser
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
