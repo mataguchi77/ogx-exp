@@ -23,12 +23,18 @@ export function useStreamingChat(): UseStreamingChatReturn {
   // Use a ref to track the live buffer value inside the async stream loop,
   // so stopStreaming can commit the latest partial content.
   const bufferRef = useRef<string>('');
+  // Use a ref to always have access to the latest messages array for building request bodies.
+  const messagesRef = useRef<ChatMessage[]>([]);
 
   /**
    * Append a new message to the committed message list.
    */
   const appendMessage = useCallback((msg: ChatMessage) => {
-    setMessages((prev) => [...prev, msg]);
+    setMessages((prev) => {
+      const next = [...prev, msg];
+      messagesRef.current = next;
+      return next;
+    });
   }, []);
 
   /**
@@ -65,12 +71,10 @@ export function useStreamingChat(): UseStreamingChatReturn {
 
       // Requirement 4.1 — append user message immediately
       // Capture the current messages + the new user message for the request body.
-      // We do this via a functional update that also captures the updated list.
-      let messagesForRequest: ChatMessage[] = [];
-      setMessages((prev) => {
-        messagesForRequest = [...prev, userMessage];
-        return messagesForRequest;
-      });
+      // Use messagesRef to always get the latest committed messages.
+      const messagesForRequest = [...messagesRef.current, userMessage];
+      messagesRef.current = messagesForRequest;
+      setMessages(messagesForRequest);
 
       // Requirement 4.3 / 6.1 — disable controls while streaming
       setIsStreaming(true);
@@ -233,6 +237,7 @@ export function useStreamingChat(): UseStreamingChatReturn {
    */
   const clearConversation = useCallback((): void => {
     setMessages([]);
+    messagesRef.current = [];
   }, []);
 
   return {

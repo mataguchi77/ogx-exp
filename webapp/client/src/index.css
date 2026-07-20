@@ -1,68 +1,351 @@
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+/* ==========================================================================
+   Base Reset
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Typography
+   ========================================================================== */
+
+body {
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  font-size: 16px;
   line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  color: #1a1a1a;          /* dark text on light bg — well above 4.5:1 on #fff */
+  background-color: #f5f5f5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
+/* ==========================================================================
+   Layout — Chat App Root
+   ========================================================================== */
 
-body {
-  margin: 0;
+#root {
   display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  flex-direction: column;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+/* ChatApp wrapper fills the viewport */
+.chat-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  background-color: #ffffff;
 }
 
-button {
+/* ==========================================================================
+   Message List
+   ========================================================================== */
+
+.message-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Invisible spacer that is scrolled into view on auto-scroll */
+.message-list-bottom {
+  height: 1px;
+}
+
+/* ==========================================================================
+   Message Items
+   ========================================================================== */
+
+.message {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* User messages: right-aligned */
+.message-user {
+  align-self: flex-end;
+  background-color: #0066cc;
+  color: #ffffff;           /* white on #0066cc — contrast ≈ 4.6:1 ✓ */
+  border-bottom-right-radius: 2px;
+}
+
+/* Assistant messages: left-aligned */
+.message-assistant {
+  align-self: flex-start;
+  background-color: #e8e8e8;
+  color: #1a1a1a;           /* #1a1a1a on #e8e8e8 — contrast > 8:1 ✓ */
+  border-bottom-left-radius: 2px;
+}
+
+/* In-progress (streaming) assistant message */
+.message-streaming {
+  background-color: #e0ecff;  /* light blue tint */
+  border: 1px solid #99c2ff;
+  color: #1a1a1a;
+}
+
+/* Error messages */
+.message-error {
+  background-color: #fdf0ef;
+  border: 1px solid #c0392b;
+  color: #7a1e17;             /* #7a1e17 on #fdf0ef — contrast > 7:1 ✓ */
+  align-self: flex-start;
+}
+
+.message-error-label {
+  display: block;
+  font-weight: 600;
+  color: #c0392b;             /* #c0392b on #fdf0ef — contrast ≈ 5.1:1 ✓ */
+  margin-bottom: 4px;
+}
+
+/* Stopped / incomplete messages */
+.message-stopped,
+.message-incomplete {
+  opacity: 0.85;
+}
+
+.message-stopped-marker {
+  color: #555555;             /* #555 on #e8e8e8 — contrast > 4.5:1 ✓ */
+  font-style: italic;
+}
+
+.message-content {
+  display: inline;
+}
+
+/* ==========================================================================
+   Blinking Cursor — Streaming Indicator
+   Requirement 3.4: animated indicator at end of Streaming_Buffer
+   ========================================================================== */
+
+@keyframes blink-cursor {
+  0%,
+  100% { opacity: 1; }
+  50%  { opacity: 0; }
+}
+
+.streaming-cursor::after {
+  content: '▋';
+  display: inline-block;
+  margin-left: 2px;
+  animation: blink-cursor 1s step-start infinite;
+  color: #0066cc;
+}
+
+/* ==========================================================================
+   Input Area
+   ========================================================================== */
+
+.input-area {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #d0d0d0;
+  background-color: #ffffff;
+}
+
+.input-label {
+  /* Visually hidden but accessible to screen readers */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.input-textarea {
+  flex: 1 1 auto;
+  resize: none;
+  padding: 8px 12px;
+  border: 1px solid #b0b0b0;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background-color: #ffffff;
+  min-height: 40px;
+  /* rows are controlled dynamically in InputArea.tsx (1–5) */
+}
+
+.input-textarea:disabled {
+  background-color: #f0f0f0;
+  color: #666666;
+  cursor: not-allowed;
+}
+
+.input-textarea::placeholder {
+  color: #767676;             /* #767 on #fff — contrast ≈ 4.5:1 ✓ */
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.btn-send,
+.btn-stop,
+.btn-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
   border-radius: 8px;
   border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  font-size: 0.9375rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s;
+  min-height: 40px;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
+/* Send button — primary action */
+.btn-send {
+  background-color: #0066cc;
+  color: #ffffff;             /* white on #0066cc — contrast ≈ 4.6:1 ✓ */
+}
+
+.btn-send:hover:not(:disabled) {
+  background-color: #0055aa;
+}
+
+/* Stop button — destructive action */
+.btn-stop {
+  background-color: #c0392b;
+  color: #ffffff;             /* white on #c0392b — contrast ≈ 5.1:1 ✓ */
+}
+
+.btn-stop:hover:not(:disabled) {
+  background-color: #a0301f;
+}
+
+/* Clear button — secondary action */
+.btn-clear {
+  background-color: transparent;
+  color: #444444;             /* #444 on #fff — contrast > 9:1 ✓ */
+  border-color: #b0b0b0;
+}
+
+.btn-clear:hover:not(:disabled) {
+  background-color: #f0f0f0;
+}
+
+/* Disabled state for all buttons */
+.btn-send:disabled,
+.btn-stop:disabled,
+.btn-clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Clear Button — positioned in chat-app header / footer area
+   ========================================================================== */
+
+.clear-area {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 16px;
+  border-bottom: 1px solid #d0d0d0;
+  background-color: #ffffff;
+}
+
+/* ==========================================================================
+   Focus-Visible Outlines — Requirement 9.6
+   Applies to all interactive elements that receive keyboard focus
+   ========================================================================== */
+
+:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+/* Remove the default outline when focus-visible is used */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ==========================================================================
+   Scrollbar Styling (optional, Chromium/WebKit only)
+   ========================================================================== */
+
+.message-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.message-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-list::-webkit-scrollbar-thumb {
+  background-color: #c0c0c0;
+  border-radius: 3px;
+}
+
+.message-list::-webkit-scrollbar-thumb:hover {
+  background-color: #999999;
+}
+
+/* ==========================================================================
+   Accessibility — aria-live region (visually hidden)
+   ========================================================================== */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ==========================================================================
+   Reduced Motion — respect prefers-reduced-motion
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .streaming-cursor::after {
+    animation: none;
+    opacity: 1;
   }
 }
