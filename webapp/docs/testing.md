@@ -1,17 +1,28 @@
-# Backend Testing Guide
+# Testing Guide
 
-PowerShell commands for testing on Windows Server 2025. Backend runs on `http://localhost:5000`.
+PowerShell commands for testing on Windows Server 2025.
+
+---
+
+## Prerequisites
+
+| Component | Required state |
+|---|---|
+| Ollama | Running (`ollama serve`) with models loaded |
+| OGX | Running on port 8321 (`uv run ogx stack run webapp/ogx-config.yaml`) |
+| Node.js | Installed (check with `node --version`) |
+| npm dependencies | Installed (`npm install` once from `webapp\`) |
 
 ---
 
 ## 1. Start Ollama and OGX (from the repo root)
 
 ```powershell
-// If it is not running
+# If it is not running
 ollama serve
-// delete the persistent sqllite-vec storage if needed
+# Delete the persistent sqlite-vec storage if needed
 Remove-Item -Recurse -Force "$env:USERPROFILE\.ogx\bedrock-agentcore-webapp"
-// Start OGX
+# Start OGX
 uv run ogx stack run webapp/ogx-config.yaml
 ```
 
@@ -36,15 +47,69 @@ Invoke-RestMethod -Uri http://localhost:11434/api/embeddings `
 ollama ps
 ```
 
-## 3. Start the backend (from `webapp\server\`)
+---
+
+## 3. Development Mode
+
+Start both the React frontend and the Express backend together (from `webapp\`):
 
 ```powershell
 npm run dev
 ```
 
-Wait for `Server listening on port 5000`. The startup log shows `RAG source: aws` or `RAG source: ollama` depending on the `RAG_SOURCE` value in `webapp\.env`.
+This uses `concurrently` to launch:
+- Vite dev server (frontend) on `http://localhost:5173`
+- Express backend on `http://localhost:5000`
 
-## 4. Test — Agent Query (AWS Knowledge Base)
+Wait for `Server listening on port 5000` in the output. The startup log shows `RAG source: aws` or `RAG source: ollama` depending on the `RAG_SOURCE` value in `webapp\.env`.
+
+Open Chrome at `http://localhost:5173` — API calls are proxied to port 5000 automatically.
+
+---
+
+## 4. Production-Like Mode
+
+Build and serve everything from a single origin on port 5000.
+
+### 4.1 Build the frontend
+
+From `webapp\`:
+
+```powershell
+npm run build
+```
+
+Bundles the React app into `webapp\server\public\`.
+
+### 4.2 Build the backend
+
+```powershell
+npm run build -w server
+```
+
+Compiles server TypeScript into `webapp\server\dist\`.
+
+### 4.3 Start the production server
+
+```powershell
+npm start
+```
+
+Wait for `Server listening on port 5000`. Open Chrome at `http://localhost:5000`. The chat UI and API are served from this single origin.
+
+### 4.4 Verify SPA fallback
+
+Any non-API path should serve the React app:
+
+```powershell
+$res = Invoke-WebRequest -Uri http://localhost:5000/some/random/path -Method GET
+$res.StatusCode               # Expected: 200
+$res.Headers["Content-Type"]  # Expected: text/html
+```
+
+---
+
+## 5. Test — Agent Query (AWS Knowledge Base)
 
 Ensure `RAG_SOURCE=aws` in `webapp\.env` and restart the backend.
 
@@ -59,9 +124,9 @@ $res | ConvertTo-Json -Depth 10
 
 ---
 
-## 5. Test — RAG Document Ingestion (Local Ollama Vector DB)
+## 6. Test — RAG Document Ingestion (Local Ollama Vector DB)
 
-### 5.1 Switch to Ollama RAG
+### 6.1 Switch to Ollama RAG
 
 Change `RAG_SOURCE` in `webapp\.env`:
 
@@ -77,7 +142,7 @@ npm run dev
 
 The startup log should show `RAG source: ollama` with the embedding model details.
 
-### 5.2 Ingest a document
+### 6.2 Ingest a document
 
 Replace the `filePath` value with the absolute path to a local file:
 
@@ -90,7 +155,7 @@ $res = Invoke-RestMethod -Uri http://localhost:5000/api/ingest `
 $res | ConvertTo-Json -Depth 10
 ```
 
-### 5.3 Query the ingested document
+### 6.3 Query the ingested document
 
 ```powershell
 $body = @{
@@ -104,7 +169,7 @@ Invoke-RestMethod -Uri http://localhost:5000/api/invoke-agent `
 
 The response should include content from the ingested document via `file_search`.
 
-### 5.4 Switch back to AWS Knowledge Base
+### 6.4 Switch back to AWS Knowledge Base
 
 Change `RAG_SOURCE` back in `webapp\.env`:
 
@@ -113,23 +178,6 @@ RAG_SOURCE=aws
 ```
 
 Restart the backend. The startup log should show `RAG source: aws`.
-
----
-
-## 6. Test — Config Endpoint
-
-```powershell
-Invoke-RestMethod -Uri http://localhost:5000/api/config -Method GET |
-  ConvertTo-Json -Depth 5
-```
-
-Expected response:
-
-```json
-{ "defaultModel": "llama3.1:8b" }
-```
-
-If `DEFAULT_MODEL` is set in `webapp\.env`, the response reflects that value.
 
 ---
 
@@ -209,7 +257,9 @@ try {
 }
 ```
 
-### Troubleshooting
+---
+
+## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -217,5 +267,8 @@ try {
 | HTTP 502 "upstream returned 4xx/5xx" | Model not loaded | Run the Ollama warmup commands in section 2 |
 | Empty / no SSE chunks | Ollama still loading | Wait 30–60 s and retry |
 | HTTP 400 on `messages` | Request body malformed | Ensure `messages` is a non-empty array with `role` and `content` fields |
+| `npm start` fails with "Cannot find module dist/index.js" | Backend not compiled | Run `npm run build -w server` |
+| Browser shows blank page | Frontend not built | Run `npm run build` from `webapp\` |
+| Slow first response | Ollama loading model | Wait 30–60 s or re-run warmup commands |
 
 ---

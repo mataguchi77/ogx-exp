@@ -50,8 +50,13 @@ export function createChatRouter(fetchFn?: typeof fetch): Router {
 
     // 4. Attach AbortController; cancel upstream fetch on client disconnect (Requirement 2.6)
     const controller = new AbortController();
+    let streamingStarted = false;
     req.on('close', () => {
-      controller.abort();
+      // Only abort if we have already started piping — otherwise the premature
+      // close races with the upstream fetch and causes an empty response.
+      if (streamingStarted) {
+        controller.abort();
+      }
     });
 
     try {
@@ -83,6 +88,8 @@ export function createChatRouter(fetchFn?: typeof fetch): Router {
       // 8. Set SSE headers and pipe raw bytes to browser (Requirement 2.3)
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
 
       // Pipe the upstream SSE response body directly to the client without buffering.
       // Node.js fetch returns a Web Streams ReadableStream; pipe it using the async iterator.
@@ -95,6 +102,7 @@ export function createChatRouter(fetchFn?: typeof fetch): Router {
 
       const reader = ogxResponse.body.getReader();
       const decoder = new TextDecoder();
+      streamingStarted = true;
 
       try {
         while (true) {
